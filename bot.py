@@ -1,16 +1,14 @@
 import os
 import asyncio
-import aiohttp
-from aiohttp import web
-from pyrogram import Client, filters, idle
+from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-from pyrogram.errors import FloodWait
 
+# 1. Credentials Setup
 API_ID = int(os.environ.get("API_ID", 0))
 API_HASH = os.environ.get("API_HASH", "")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 
-# Main Bot Client
+# Main Bot Client (in_memory=True taaki koi session file error na aaye)
 app = Client(
     "otp_manager_bot",
     api_id=API_ID,
@@ -19,8 +17,8 @@ app = Client(
     in_memory=True
 )
 
-USER_ACCOUNTS = {}
-USER_STATE = {}
+USER_ACCOUNTS = {}  # {acc_id: {"client": client, "phone": phone, "name": name, "username": username, "session": session_string}}
+USER_STATE = {}     # User ke current action ko track karne ke liye
 
 def get_main_keyboard():
     return InlineKeyboardMarkup([
@@ -29,20 +27,20 @@ def get_main_keyboard():
         [InlineKeyboardButton("🗑️ Delete Account", callback_data="delete_menu")]
     ])
 
-# 1. /start Command (Ab sabhi ke liye khula hai taaki pata chale bot response de raha hai ya nahi)
+# 2. /start Command Handler
 @app.on_message(filters.command("start"))
 async def start_cmd(client, message: Message):
     user_id = message.from_user.id
-    print(f"📥 Received /start command from user ID: {user_id}")
+    print(f"✅ Success: /start command received from user ID: {user_id}")
     
     USER_STATE.pop(user_id, None)
     await message.reply_text(
         "🚀 **Advanced OTP & Account Manager Bot**\n\n"
-        "Welcome! Sabhi systems bilkul active hain. Niche diye gaye options ka use karein:",
+        "Welcome! Bot bilkul active hai. Niche diye gaye options ka use karein:",
         reply_markup=get_main_keyboard()
     )
 
-# 2. Inline Buttons Handler
+# 3. Inline Buttons Handler
 @app.on_callback_query()
 async def callback_handler(client, callback_query: CallbackQuery):
     user_id = callback_query.from_user.id
@@ -162,7 +160,7 @@ async def callback_handler(client, callback_query: CallbackQuery):
             reply_markup=get_main_keyboard()
         )
 
-# 3. Session Login & Auto OTP Forwarder
+# 4. Text Message Handler (Session Input & OTP Forwarder)
 @app.on_message(filters.text & ~filters.command(["start"]))
 async def handle_text_messages(client, message: Message):
     user_id = message.from_user.id
@@ -172,7 +170,7 @@ async def handle_text_messages(client, message: Message):
         session_string = message.text.strip()
         USER_STATE.pop(user_id, None)
         
-        status_msg = await message.reply_text("⏳ Session verify ho raha hai, kripya intezaar karein...")
+        status_msg = await message.reply_text("⏳ Session verify ho raha hai, kripya intezaار karein...")
 
         try:
             user_client = Client(
@@ -222,37 +220,7 @@ async def handle_text_messages(client, message: Message):
                 reply_markup=get_main_keyboard()
             )
 
-# 4. Render Web Server & Safe Startup
-async def handle_web(request):
-    return web.Response(text="Bot is running smoothly on Render!")
-
-async def main():
-    # Purana webhook clear karna sabse zaroori hai taaki messages block na ho
-    async with aiohttp.ClientSession() as session:
-        async with session.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook?drop_pending_updates=true") as resp:
-            print("Webhook cleared status:", resp.status)
-
-    # Render Port Binding Web Server
-    web_app = web.Application()
-    web_app.router.add_get("/", handle_web)
-    runner = web.AppRunner(web_app)
-    await runner.setup()
-    port = int(os.environ.get("PORT", 8080))
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-    print(f"Web server started on port {port}")
-
-    # FloodWait safe startup
-    while True:
-        try:
-            await app.start()
-            print("Bot is up and running successfully!")
-            break
-        except FloodWait as e:
-            print(f"FloodWait! Sleeping for {e.value} seconds...")
-            await asyncio.sleep(e.value)
-
-    await idle()
-
+# 5. Bot Run (Direct background runner - No Web Server conflict)
 if __name__ == "__main__":
-    asyncio.run(main())
+    print("Starting bot via app.run()...")
+    app.run()
