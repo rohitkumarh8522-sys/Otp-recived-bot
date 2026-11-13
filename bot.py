@@ -4,14 +4,13 @@ import aiohttp
 from aiohttp import web
 from pyrogram import Client, filters, idle
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from pyrogram.errors import FloodWait
 
-# 1. Credentials Setup
 API_ID = int(os.environ.get("API_ID", 0))
 API_HASH = os.environ.get("API_HASH", "")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
-ADMIN_ID = int(os.environ.get("ADMIN_ID", 0))
 
-# Main Bot Client (in_memory=True taaki Render par file permission error na aaye)
+# Main Bot Client
 app = Client(
     "otp_manager_bot",
     api_id=API_ID,
@@ -20,9 +19,8 @@ app = Client(
     in_memory=True
 )
 
-# Global Data Storage
-USER_ACCOUNTS = {}  # {acc_id: {"client": client, "phone": phone, "name": name, "username": username, "session": session_string}}
-USER_STATE = {}     # Track user state (jaise session maangna)
+USER_ACCOUNTS = {}
+USER_STATE = {}
 
 def get_main_keyboard():
     return InlineKeyboardMarkup([
@@ -31,31 +29,25 @@ def get_main_keyboard():
         [InlineKeyboardButton("🗑️ Delete Account", callback_data="delete_menu")]
     ])
 
-# 2. /start Command (Sirf Admin ke liye)
+# 1. /start Command (Ab sabhi ke liye khula hai taaki pata chale bot response de raha hai ya nahi)
 @app.on_message(filters.command("start"))
 async def start_cmd(client, message: Message):
-    if message.from_user.id != ADMIN_ID:
-        await message.reply_text("⛔ Aap is bot ko use nahi kar sakte. Ye sirf Admin ke liye hai.")
-        return
-
-    USER_STATE.pop(message.from_user.id, None)
+    user_id = message.from_user.id
+    print(f"📥 Received /start command from user ID: {user_id}")
+    
+    USER_STATE.pop(user_id, None)
     await message.reply_text(
         "🚀 **Advanced OTP & Account Manager Bot**\n\n"
-        "Welcome Admin! Niche diye gaye options se apne accounts control karein:",
+        "Welcome! Sabhi systems bilkul active hain. Niche diye gaye options ka use karein:",
         reply_markup=get_main_keyboard()
     )
 
-# 3. Inline Buttons & Callback Handler
+# 2. Inline Buttons Handler
 @app.on_callback_query()
 async def callback_handler(client, callback_query: CallbackQuery):
-    if callback_query.from_user.id != ADMIN_ID:
-        await callback_query.answer("⛔ Access Denied!", show_alert=True)
-        return
-
     user_id = callback_query.from_user.id
     data = callback_query.data
 
-    # A. Add Login via Session
     if data == "add_login":
         USER_STATE[user_id] = "awaiting_session"
         await callback_query.message.edit_text(
@@ -65,7 +57,6 @@ async def callback_handler(client, callback_query: CallbackQuery):
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("« Back", callback_data="go_back")]])
         )
 
-    # B. List Added Accounts
     elif data == "list_accounts":
         if not USER_ACCOUNTS:
             await callback_query.answer("⚠️ Abhi tak koi account add nahi kiya gaya hai!", show_alert=True)
@@ -81,7 +72,6 @@ async def callback_handler(client, callback_query: CallbackQuery):
             reply_markup=InlineKeyboardMarkup(buttons)
         )
 
-    # C. Manage Specific Account
     elif data.startswith("manage_acc_"):
         acc_id = int(data.split("_")[2])
         if acc_id in USER_ACCOUNTS:
@@ -103,7 +93,6 @@ async def callback_handler(client, callback_query: CallbackQuery):
         else:
             await callback_query.answer("❌ Account nahi mila.", show_alert=True)
 
-    # D. Check Latest OTP from Official Telegram (777000)
     elif data.startswith("get_otp_"):
         acc_id = int(data.split("_")[2])
         if acc_id in USER_ACCOUNTS:
@@ -121,7 +110,6 @@ async def callback_handler(client, callback_query: CallbackQuery):
             except Exception as e:
                 await callback_query.answer(f"Error fetching OTP: {str(e)}", show_alert=True)
 
-    # E. Export Session String
     elif data.startswith("exp_sess_"):
         acc_id = int(data.split("_")[2])
         if acc_id in USER_ACCOUNTS:
@@ -131,7 +119,6 @@ async def callback_handler(client, callback_query: CallbackQuery):
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("« Back", callback_data=f"manage_acc_{acc_id}")]])
             )
 
-    # F. Delete Account Menu
     elif data == "delete_menu":
         if not USER_ACCOUNTS:
             await callback_query.answer("⚠️ Delete karne ke liye koi account nahi hai!", show_alert=True)
@@ -147,7 +134,6 @@ async def callback_handler(client, callback_query: CallbackQuery):
             reply_markup=InlineKeyboardMarkup(buttons)
         )
 
-    # G. Execute Account Deletion
     elif data.startswith("del_acc_"):
         acc_id = int(data.split("_")[2])
         if acc_id in USER_ACCOUNTS:
@@ -169,7 +155,6 @@ async def callback_handler(client, callback_query: CallbackQuery):
         else:
             await callback_query.answer("❌ Account nahi mila.", show_alert=True)
 
-    # H. Back Button Handler
     elif data == "go_back":
         USER_STATE.pop(user_id, None)
         await callback_query.message.edit_text(
@@ -177,12 +162,9 @@ async def callback_handler(client, callback_query: CallbackQuery):
             reply_markup=get_main_keyboard()
         )
 
-# 4. Text Message Handler (Session String Input & OTP Auto-Forwarder)
+# 3. Session Login & Auto OTP Forwarder
 @app.on_message(filters.text & ~filters.command(["start"]))
 async def handle_text_messages(client, message: Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-
     user_id = message.from_user.id
     state = USER_STATE.get(user_id)
 
@@ -220,12 +202,11 @@ async def handle_text_messages(client, message: Message):
                 reply_markup=get_main_keyboard()
             )
 
-            # Auto OTP Listener for Telegram Official Service (777000)
             @user_client.on_message(filters.chat(777000))
             async def otp_listener(u_cli, otp_msg: Message):
                 if otp_msg.text:
                     await client.send_message(
-                        chat_id=ADMIN_ID,
+                        chat_id=user_id,
                         text=f"🚨 **New OTP Received!**\n\n📱 Account: `+{me.phone_number}`\n\n{otp_msg.text}"
                     )
 
@@ -241,17 +222,17 @@ async def handle_text_messages(client, message: Message):
                 reply_markup=get_main_keyboard()
             )
 
-# 5. Render Web Server Setup (Port Binding & Webhook Cleaner)
+# 4. Render Web Server & Safe Startup
 async def handle_web(request):
     return web.Response(text="Bot is running smoothly on Render!")
 
 async def main():
-    # Purana webhook clear karna taaki messages block na ho
+    # Purana webhook clear karna sabse zaroori hai taaki messages block na ho
     async with aiohttp.ClientSession() as session:
         async with session.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook?drop_pending_updates=true") as resp:
             print("Webhook cleared status:", resp.status)
 
-    # Aiohttp Web Server (Render port requirement fulfill karne ke liye)
+    # Render Port Binding Web Server
     web_app = web.Application()
     web_app.router.add_get("/", handle_web)
     runner = web.AppRunner(web_app)
@@ -261,9 +242,16 @@ async def main():
     await site.start()
     print(f"Web server started on port {port}")
 
-    # Start Pyrogram Bot
-    await app.start()
-    print("Bot is up and running successfully!")
+    # FloodWait safe startup
+    while True:
+        try:
+            await app.start()
+            print("Bot is up and running successfully!")
+            break
+        except FloodWait as e:
+            print(f"FloodWait! Sleeping for {e.value} seconds...")
+            await asyncio.sleep(e.value)
+
     await idle()
 
 if __name__ == "__main__":
