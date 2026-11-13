@@ -1,8 +1,6 @@
 import os
 import asyncio
-import aiohttp
-from aiohttp import web
-from pyrogram import Client, filters, idle
+from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
 # 1. Credentials Setup
@@ -222,30 +220,7 @@ async def handle_text_messages(client, message: Message):
                 reply_markup=get_main_keyboard()
             )
 
-# 5. Render Web Server + Bot Combined Runner
-async def handle_web(request):
-    return web.Response(text="Bot is running smoothly on Render!")
-
-async def main():
-    # Purana webhook clear karna taaki port/webhook conflict na ho
-    async with aiohttp.ClientSession() as session:
-        async with session.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook?drop_pending_updates=true") as resp:
-            print("Webhook cleared status:", resp.status)
-
-    # Aiohttp Web Server (Render ke liye port binding requirement)
-    web_app = web.Application()
-    web_app.router.add_get("/", handle_web)
-    runner = web.AppRunner(web_app)
-    await runner.setup()
-    port = int(os.environ.get("PORT", 8080))
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-    print(f"Web server started on port {port}")
-
-    # Start Pyrogram Bot
-    await app.start()
-    print("Bot is up and running successfully with Web Server!")
-    await idle()
-
+# 5. Direct Bot Runner (No Web Server, pure Telegram polling)
 if __name__ == "__main__":
-    asyncio.run(main())
+    print("Starting bot directly...")
+    app.run()
