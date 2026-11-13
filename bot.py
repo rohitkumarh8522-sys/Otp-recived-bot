@@ -1,6 +1,8 @@
 import os
 import asyncio
-from pyrogram import Client, filters
+import aiohttp
+from aiohttp import web
+from pyrogram import Client, filters, idle
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
 # 1. Credentials Setup
@@ -8,7 +10,7 @@ API_ID = int(os.environ.get("API_ID", 0))
 API_HASH = os.environ.get("API_HASH", "")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 
-# Main Bot Client (in_memory=True taaki koi session file error na aaye)
+# Main Bot Client
 app = Client(
     "otp_manager_bot",
     api_id=API_ID,
@@ -170,7 +172,7 @@ async def handle_text_messages(client, message: Message):
         session_string = message.text.strip()
         USER_STATE.pop(user_id, None)
         
-        status_msg = await message.reply_text("⏳ Session verify ho raha hai, kripya intezaار karein...")
+        status_msg = await message.reply_text("⏳ Session verify ho raha hai, kripya intezaar karein...")
 
         try:
             user_client = Client(
@@ -220,7 +222,30 @@ async def handle_text_messages(client, message: Message):
                 reply_markup=get_main_keyboard()
             )
 
-# 5. Bot Run (Direct background runner - No Web Server conflict)
+# 5. Render Web Server + Bot Combined Runner
+async def handle_web(request):
+    return web.Response(text="Bot is running smoothly on Render!")
+
+async def main():
+    # Purana webhook clear karna taaki port/webhook conflict na ho
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook?drop_pending_updates=true") as resp:
+            print("Webhook cleared status:", resp.status)
+
+    # Aiohttp Web Server (Render ke liye port binding requirement)
+    web_app = web.Application()
+    web_app.router.add_get("/", handle_web)
+    runner = web.AppRunner(web_app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    print(f"Web server started on port {port}")
+
+    # Start Pyrogram Bot
+    await app.start()
+    print("Bot is up and running successfully with Web Server!")
+    await idle()
+
 if __name__ == "__main__":
-    print("Starting bot via app.run()...")
-    app.run()
+    asyncio.run(main())
