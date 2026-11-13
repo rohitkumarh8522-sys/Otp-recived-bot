@@ -31,8 +31,6 @@ def get_main_keyboard():
 @app.on_message(filters.command("start"))
 async def start_cmd(client, message: Message):
     user_id = message.from_user.id
-    print(f"✅ Success: /start command received from user ID: {user_id}")
-    
     USER_STATE.pop(user_id, None)
     await message.reply_text(
         "🚀 **Advanced OTP & Account Manager Bot**\n\n"
@@ -50,8 +48,8 @@ async def callback_handler(client, callback_query: CallbackQuery):
         USER_STATE[user_id] = "awaiting_session"
         await callback_query.message.edit_text(
             "🔑 **Session Login:**\n\n"
-            "Kripya apna poora **Pyrogram String Session** yahan bhejain:\n"
-            "*(Dhyan rahe koi bhi character miss na ho)*",
+            "Kripya apna poora **Pyrogram v2 String Session** yahan bhejain:\n"
+            "*(Dhyan rahe yeh Telethon ki string nahi honi chahiye)*",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("« Back", callback_data="go_back")]])
         )
 
@@ -160,7 +158,7 @@ async def callback_handler(client, callback_query: CallbackQuery):
             reply_markup=get_main_keyboard()
         )
 
-# 4. Text Message Handler (Session Input & OTP Forwarder)
+# 4. Text Message Handler (Session Input & Smart Validation)
 @app.on_message(filters.text & ~filters.command(["start"]))
 async def handle_text_messages(client, message: Message):
     user_id = message.from_user.id
@@ -170,6 +168,15 @@ async def handle_text_messages(client, message: Message):
         session_string = message.text.strip()
         USER_STATE.pop(user_id, None)
         
+        # Smart Check: Telethon string usually 1-2 character se start hoti hai ya alag length ki hoti hai
+        if len(session_string) < 200:
+            await message.reply_text(
+                "❌ **Invalid Session String Length!**\n\n"
+                "Aapne jo string di hai woh bahut choti hai. Pyrogram v2 string session lamba hota hai (~300+ characters). Kripya sahi Pyrogram string session bhejein.",
+                reply_markup=get_main_keyboard()
+            )
+            return
+
         status_msg = await message.reply_text("⏳ Session verify ho raha hai, kripya intezaar karein...")
 
         try:
@@ -211,7 +218,11 @@ async def handle_text_messages(client, message: Message):
         except Exception as e:
             error_text = str(e)
             if "unpack requires a buffer" in error_text or "string" in error_text.lower():
-                err_msg = "❌ **Invalid Session String!**\nAapne jo session string di hai woh adhoori ya galat hai. Kripya poori sahi Pyrogram session string copy karke dobara bhejein."
+                err_msg = (
+                    "❌ **Invalid Pyrogram Session Format!**\n\n"
+                    "Aapne shayad **Telethon** ki string bhej di hai ya string ke beech mein koi space/character cut gaya hai.\n"
+                    "Yeh bot sirf **Pyrogram v2 String Session** support karta hai."
+                )
             else:
                 err_msg = f"❌ **Login Fail Ho Gaya:**\n`{error_text}`"
 
@@ -220,7 +231,7 @@ async def handle_text_messages(client, message: Message):
                 reply_markup=get_main_keyboard()
             )
 
-# 5. Direct Bot Runner (No Web Server, pure Telegram polling)
+# 5. Direct Bot Runner
 if __name__ == "__main__":
     print("Starting bot directly...")
     app.run()
